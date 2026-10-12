@@ -1,0 +1,67 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ==========================================================
+   Design tokens — SubtitleForge
+   فلسفة اللون: أداة يعمل عليها صنّاع محتوى في غرف مونتاج مظلمة غالبًا،
+   فالوضع الليلي هو الافتراضي (وليس النهاري) — تركواز هادئ بدل
+   البرتقالي المستهلك أو الأخضر النيون، وحدود رفيعة بدل بطاقات الظل.
+
+   القيم مكتوبة كـ "R G B" (بدون دوال) عمدًا حتى تستطيع Tailwind حساب
+   الشفافية (bg-accent/5 مثلاً) عبر rgb(var(--x) / <alpha-value>).
+   ========================================================== */
+
+:root[data-theme="dark"] {
+  --color-bg: 15 17 21;
+  --color-surface: 23 26 33;
+  --color-text: 232 230 225;
+  --color-text-muted: 154 160 172;
+  --color-border: 38 43 53;
+  --color-accent: 79 169 162;
+  --color-accent-strong: 111 195 187;
+}
+
+:root[data-theme="light"] {
+  --color-bg: 247 246 243;
+  --color-surface: 255 255 255;
+  --color-text: 27 29 34;
+  --color-text-muted: 107 114 128;
+  --color-border: 228 225 219;
+  --color-accent: 47 125 119;
+  --color-accent-strong: 37 101 96;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  background-color: rgb(var(--color-bg));
+  color: rgb(var(--color-text));
+  font-family: "IBM Plex Sans Arabic", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* توقيتات ورموز تقنية تستخدم الخط أحادي المسافة دومًا،
+   بغض النظر عن اتجاه الصفحة، لأنها بيانات لا نص. */
+.font-mono,
+.timecode {
+  direction: ltr;
+  unicode-bidi: plaintext;
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--color-accent));
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
