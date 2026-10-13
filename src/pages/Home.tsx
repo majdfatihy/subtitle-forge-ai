@@ -1,10 +1,9 @@
 import { useState } from "react";
-import { QuickActions } from "@/features/upload/QuickActions";
 import { UploadArea, type AcceptedFile } from "@/features/upload/UploadArea";
-import { RecordPanel } from "@/features/record/RecordPanel";
 import { FileSummary } from "@/features/upload/FileSummary";
 import { ExtractAudioPanel } from "@/features/media/ExtractAudioPanel";
 import { SubtitleEditor } from "@/features/editor/SubtitleEditor";
+import { RecordPanel } from "@/features/record/RecordPanel";
 import { Notice } from "@/components/Notice";
 import { ProjectsPanel } from "@/features/projects/ProjectsPanel";
 import { saveProject } from "@/storage/projectsDB";
@@ -17,17 +16,9 @@ export function Home() {
   const [track, setTrack] = useState<SubtitleTrack | null>(null);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [inputMode, setInputMode] = useState<"upload" | "record">("upload");
-  // يتغيّر مع كل تفريغ جديد — يجبر React على إعادة إنشاء SubtitleEditor
-  // من الصفر بدل الاحتفاظ بحالته الداخلية القديمة (كانت تحتاج Refresh يدوي).
   const [resultNonce, setResultNonce] = useState(0);
   const [showProjects, setShowProjects] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
-
-  const handleTranscribed = (t: SubtitleTrack, blob: Blob) => {
-    setTrack(t);
-    setAudioBlob(blob);
-    setResultNonce((n) => n + 1);
-  };
 
   const handleFileChange = (f: AcceptedFile) => {
     setQuickError(null);
@@ -68,42 +59,58 @@ export function Home() {
     }
   };
 
-  return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8">
-      {/* عنوان */}
-      <div className="mb-8 flex flex-col items-center gap-3 text-center">
-        <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-          حوّل الفيديو والصوت إلى نص وملفات ترجمة
-        </h1>
-        <p className="max-w-md text-sm text-muted">
-          اختر ملفًا، استخرج الصوت، فرّغ النص عبر Groq أو Deepgram أو AssemblyAI مجانًا.
-        </p>
-        <button
-          type="button"
-          onClick={() => setShowProjects(true)}
-          className="text-xs text-muted underline hover:text-text"
-        >
-          📂 المشاريع المحفوظة
-        </button>
-      </div>
+  const SaveButton = () => (
+    <div className="flex items-center justify-end gap-2">
+      <button
+        type="button"
+        onClick={handleSaveProject}
+        disabled={saveStatus === "saving"}
+        className="rounded-sf border border-border px-3 py-1.5 text-xs text-muted hover:text-text disabled:opacity-50"
+      >
+        {saveStatus === "saving" ? "جارٍ الحفظ…" : saveStatus === "saved" ? "✅ تم الحفظ" : "💾 حفظ المشروع"}
+      </button>
+    </div>
+  );
 
-      {showProjects && (
-        <ProjectsPanel
-          onOpenProject={handleOpenProject}
-          onClose={() => setShowProjects(false)}
-        />
+  return (
+    <div className="mx-auto w-full max-w-6xl px-4 py-6">
+      {/* العنوان الكامل يظهر فقط قبل اختيار أي ملف — بعدها يتقلّص لشريط صغير */}
+      {!accepted ? (
+        <div className="mb-6 flex flex-col items-center gap-3 text-center">
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
+            حوّل الفيديو والصوت إلى نص وملفات ترجمة
+          </h1>
+          <p className="max-w-md text-sm text-muted">
+            اختر ملفًا، استخرج الصوت، فرّغ النص عبر Groq أو Deepgram أو AssemblyAI مجانًا.
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowProjects(true)}
+            className="text-xs text-muted underline hover:text-text"
+          >
+            📂 المشاريع المحفوظة
+          </button>
+        </div>
+      ) : (
+        <div className="mb-4 flex items-center justify-between">
+          <p className="text-sm font-semibold text-text">SubtitleForge</p>
+          <button
+            type="button"
+            onClick={() => setShowProjects(true)}
+            className="text-xs text-muted underline hover:text-text"
+          >
+            📂 المشاريع
+          </button>
+        </div>
       )}
 
-      {/* تخطيط عمودان على الكمبيوتر */}
+      {showProjects && (
+        <ProjectsPanel onOpenProject={handleOpenProject} onClose={() => setShowProjects(false)} />
+      )}
+
       <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-
-        {/* العمود الأيمن — الرفع والاستخراج والتفريغ */}
+        {/* العمود الأيمن — الرفع/التسجيل والاستخراج والتفريغ */}
         <div className="space-y-4">
-          <QuickActions
-            onFileAccepted={handleFileChange}
-            onError={(message, title) => setQuickError({ title, message })}
-          />
-
           {quickError && (
             <Notice
               tone="error"
@@ -113,7 +120,6 @@ export function Home() {
             />
           )}
 
-          {/* منطقة السحب/التسجيل تختفي بعد اختيار الملف */}
           {!accepted ? (
             <>
               <div className="flex gap-2">
@@ -164,10 +170,7 @@ export function Home() {
                   تغيير الملف
                 </button>
               </div>
-              <ExtractAudioPanel
-                accepted={accepted}
-                onTranscribed={handleTranscribed}
-              />
+              <ExtractAudioPanel accepted={accepted} onTranscribed={(t, b) => { setTrack(t); setAudioBlob(b); setResultNonce((n) => n + 1); }} />
             </div>
           )}
         </div>
@@ -176,16 +179,7 @@ export function Home() {
         <div className="hidden lg:block">
           {track && audioBlob && accepted ? (
             <div className="space-y-3">
-              <div className="flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={handleSaveProject}
-                  disabled={saveStatus === "saving"}
-                  className="rounded-sf border border-border px-3 py-1.5 text-xs text-muted hover:text-text disabled:opacity-50"
-                >
-                  {saveStatus === "saving" ? "جارٍ الحفظ…" : saveStatus === "saved" ? "✅ تم الحفظ" : "💾 حفظ المشروع"}
-                </button>
-              </div>
+              <SaveButton />
               <SubtitleEditor
                 key={resultNonce}
                 initialCues={track.cues}
@@ -204,19 +198,10 @@ export function Home() {
           )}
         </div>
 
-        {/* المحرر على الموبايل — يظهر أسفل كل شيء */}
+        {/* المحرر على الموبايل */}
         {track && audioBlob && accepted && (
           <div className="space-y-3 lg:hidden">
-            <div className="flex items-center justify-end gap-2">
-              <button
-                type="button"
-                onClick={handleSaveProject}
-                disabled={saveStatus === "saving"}
-                className="rounded-sf border border-border px-3 py-1.5 text-xs text-muted hover:text-text disabled:opacity-50"
-              >
-                {saveStatus === "saving" ? "جارٍ الحفظ…" : saveStatus === "saved" ? "✅ تم الحفظ" : "💾 حفظ المشروع"}
-              </button>
-            </div>
+            <SaveButton />
             <SubtitleEditor
               key={resultNonce}
               initialCues={track.cues}

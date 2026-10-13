@@ -11,15 +11,41 @@ function formatElapsed(totalSeconds: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-/** يحوّل Blob التسجيل إلى File عادي — يدخل بعدها نفس مسار الاستخراج/التفريغ الموجود بلا أي تفرّع كود إضافي. */
 function blobToAcceptedFile(blob: Blob): AcceptedFile {
   const ext = blob.type.includes("mp4") ? "m4a" : blob.type.includes("ogg") ? "ogg" : "webm";
   const file = new File([blob], `تسجيل-${Date.now()}.${ext}`, { type: blob.type });
   return { file, kind: "audio" };
 }
 
+/** مؤشر مستوى صوت حي بسيط — أعمدة تتحرك مع audioLevel لإثبات أن المايك فعليًا يلتقط صوتًا. */
+function LevelMeter({ level }: { level: number }) {
+  const bars = 20;
+  const activeBars = Math.round(level * bars);
+  return (
+    <div className="flex h-10 items-end justify-center gap-0.5" aria-hidden="true">
+      {Array.from({ length: bars }).map((_, i) => {
+        const isActive = i < activeBars;
+        const heightPct = 20 + (i / bars) * 80;
+        return (
+          <div
+            key={i}
+            style={{ height: `${heightPct}%` }}
+            className={`w-1.5 rounded-sm transition-colors duration-75 ${
+              isActive
+                ? i > bars * 0.85
+                  ? "bg-red-500"
+                  : "bg-accent"
+                : "bg-border"
+            }`}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
 export function RecordPanel({ onFileAccepted }: RecordPanelProps) {
-  const { status, elapsedSeconds, audioBlob, error, start, pause, resume, stop, reset } =
+  const { status, elapsedSeconds, audioBlob, error, audioLevel, start, pause, resume, stop, reset } =
     useAudioRecorder();
 
   const isRecording = status === "recording";
@@ -47,6 +73,7 @@ export function RecordPanel({ onFileAccepted }: RecordPanelProps) {
 
       {(isRecording || isPaused) && (
         <div className="space-y-3">
+          <LevelMeter level={isRecording ? audioLevel : 0} />
           <div className="flex items-center justify-center gap-2">
             <span
               className={`h-2.5 w-2.5 rounded-full bg-red-500 ${isRecording ? "animate-pulse" : ""}`}
@@ -54,6 +81,11 @@ export function RecordPanel({ onFileAccepted }: RecordPanelProps) {
             <span className="font-mono text-lg text-text">{formatElapsed(elapsedSeconds)}</span>
             {isPaused && <span className="text-xs text-muted">(متوقّف مؤقتًا)</span>}
           </div>
+          {isRecording && audioLevel < 0.03 && (
+            <p className="text-center text-xs text-amber-500">
+              ⚠️ لا يبدو أن المايك يلتقط صوتًا — تأكّد من عدم كتم الصوت (Mute) وأنه الميكروفون الصحيح مُختار في المتصفح.
+            </p>
+          )}
           <div className="flex gap-2">
             {isRecording ? (
               <button
@@ -86,9 +118,7 @@ export function RecordPanel({ onFileAccepted }: RecordPanelProps) {
       {isStopped && audioBlob && (
         <div className="space-y-3">
           <audio controls src={URL.createObjectURL(audioBlob)} className="w-full" />
-          <p className="text-center text-xs text-muted">
-            المدة: {formatElapsed(elapsedSeconds)}
-          </p>
+          <p className="text-center text-xs text-muted">المدة: {formatElapsed(elapsedSeconds)}</p>
           <div className="flex gap-2">
             <button
               type="button"
@@ -111,11 +141,7 @@ export function RecordPanel({ onFileAccepted }: RecordPanelProps) {
       {error && (
         <div className="rounded-sf border border-red-500/30 bg-red-500/10 p-3">
           <p className="text-xs text-red-500">{error}</p>
-          <button
-            type="button"
-            onClick={reset}
-            className="mt-1 text-xs text-muted underline"
-          >
+          <button type="button" onClick={reset} className="mt-1 text-xs text-muted underline">
             حاول مرة أخرى
           </button>
         </div>

@@ -31,29 +31,6 @@ export function ExtractAudioPanel({ accepted, onTranscribed }: ExtractAudioPanel
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    setStatus("loading-metadata");
-    setMetadata(null);
-    setResult(null);
-    setError(null);
-    readMetadata(accepted.file, accepted.kind)
-      .then((meta) => {
-        if (cancelled) return;
-        setMetadata(meta);
-        setStatus("ready");
-        // استخراج تلقائي فور معرفة بيانات الملف — بلا حاجة لضغطة زر إضافية.
-        void handleExtract();
-      })
-      .catch((err: Error) => { if (!cancelled) { setError(err.message); setStatus("error"); } });
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [accepted]);
-
-  useEffect(() => {
-    return () => { if (audioUrl) URL.revokeObjectURL(audioUrl); };
-  }, [audioUrl]);
-
   const handleExtract = async () => {
     setStatus("extracting");
     setProgress(0);
@@ -69,6 +46,28 @@ export function ExtractAudioPanel({ accepted, onTranscribed }: ExtractAudioPanel
     }
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    setStatus("loading-metadata");
+    setMetadata(null);
+    setResult(null);
+    setError(null);
+    readMetadata(accepted.file, accepted.kind)
+      .then((meta) => {
+        if (cancelled) return;
+        setMetadata(meta);
+        setStatus("ready");
+        void handleExtract(); // استخراج تلقائي — بلا حاجة لضغطة زر إضافية
+      })
+      .catch((err: Error) => { if (!cancelled) { setError(err.message); setStatus("error"); } });
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [accepted]);
+
+  useEffect(() => {
+    return () => { if (audioUrl) URL.revokeObjectURL(audioUrl); };
+  }, [audioUrl]);
+
   return (
     <div className="space-y-3 rounded-sf border border-border bg-surface p-4">
       <p className="text-sm font-medium text-text">استخراج الصوت</p>
@@ -83,16 +82,10 @@ export function ExtractAudioPanel({ accepted, onTranscribed }: ExtractAudioPanel
       )}
 
       {status === "error" && (
-        <Button variant="primary" onClick={handleExtract}>
-          إعادة المحاولة
-        </Button>
+        <Button variant="primary" onClick={handleExtract}>إعادة المحاولة</Button>
       )}
       {status === "done" && (
-        <button
-          type="button"
-          onClick={handleExtract}
-          className="text-xs text-muted underline hover:text-text"
-        >
+        <button type="button" onClick={handleExtract} className="text-xs text-muted underline hover:text-text">
           إعادة الاستخراج
         </button>
       )}
@@ -114,16 +107,10 @@ export function ExtractAudioPanel({ accepted, onTranscribed }: ExtractAudioPanel
       )}
 
       {status === "done" && result && (
-        <TranscribePanel
-          audio={result}
-          sourceFile={accepted.file}
-          onTranscribed={onTranscribed}
-        />
+        <TranscribePanel audio={result} sourceFile={accepted.file} onTranscribed={onTranscribed} />
       )}
 
-      {error && (
-        <Notice tone="error" title="حدث خطأ" message={error} onDismiss={() => setError(null)} />
-      )}
+      {error && <Notice tone="error" title="حدث خطأ" message={error} onDismiss={() => setError(null)} />}
     </div>
   );
 }

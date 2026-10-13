@@ -6,10 +6,6 @@
 import type { Word } from "@/models/subtitle";
 import type { TranscriptionResult } from "./SpeechEngine";
 
-// ============================================================
-// أنواع مشتركة
-// ============================================================
-
 export type ProviderId = "groq" | "deepgram" | "assemblyai";
 
 export interface ProviderInfo {
@@ -34,10 +30,6 @@ export interface CloudTranscribeOptions {
   language: string; // ISO 639-1 أو "auto"
 }
 
-// ============================================================
-// بيانات المنصات
-// ============================================================
-
 export const PROVIDERS: ProviderInfo[] = [
   {
     id: "groq",
@@ -59,8 +51,9 @@ export const PROVIDERS: ProviderInfo[] = [
     signupUrl: "https://console.deepgram.com/signup",
     keyPlaceholder: "Token هنا...",
     models: [
+      // Nova-2 لا يدعم العربية رسميًا (رسالة Deepgram نفسها توجّه لـ Nova-3
+      // عند اختيار ar) — حُذف من القائمة لتفادي خطأ 400 متكرر.
       { value: "nova-3", label: "Nova-3 (الأدق)" },
-      { value: "nova-2", label: "Nova-2 (أسرع)" },
     ],
   },
   {
@@ -114,15 +107,20 @@ async function transcribeDeepgram(
   blob: Blob,
   opts: CloudTranscribeOptions
 ): Promise<TranscriptionResult> {
-  // "words" ليس باراميتر موثَّقًا رسميًا في Deepgram — توقيتات الكلمات
-  // موجودة افتراضيًا في الرد (alternatives[0].words)، وإرساله كان على
-  // الأرجح سبب الـ 400 (باراميتر غير معروف تُرفَض بصرامة).
   const params = new URLSearchParams({
     model: opts.model,
     punctuate: "true",
     smart_format: "true",
   });
-  if (opts.language !== "auto") params.set("language", opts.language);
+
+  // بدون تحديد صريح، Deepgram تفترض الإنجليزية افتراضيًا (موثَّق رسميًا) —
+  // "اكتشاف تلقائي" لازم تفعيل detect_language صراحة، وإلا تُفرَّغ صوت
+  // عربي بافتراض إنجليزي فيخرج نص شبه فارغ رغم ظهور "اكتمل" بنجاح.
+  if (opts.language === "auto") {
+    params.set("detect_language", "true");
+  } else {
+    params.set("language", opts.language);
+  }
 
   const res = await fetch(
     `https://api.deepgram.com/v1/listen?${params.toString()}`,
@@ -163,7 +161,6 @@ async function transcribeAssemblyAI(
     "Content-Type": "application/json",
   };
 
-  // 1) رفع الملف الصوتي
   const uploadRes = await fetch("https://api.assemblyai.com/v2/upload", {
     method: "POST",
     headers: { Authorization: opts.apiKey, "Content-Type": blob.type || "audio/wav" },
@@ -172,14 +169,17 @@ async function transcribeAssemblyAI(
   if (!uploadRes.ok) throw await makeError(uploadRes, "AssemblyAI (upload)");
   const { upload_url } = await uploadRes.json();
 
-  // 2) بدء التفريغ
-  // speech_model متوقف رسميًا — الـ API الجديد يستخدم speech_models كـ array
   const body: Record<string, unknown> = {
     audio_url: upload_url,
     speech_models: [opts.model],
     format_text: true,
   };
-  if (opts.language !== "auto") body.language_code = opts.language;
+  // نفس منطق Deepgram — بدون تفعيل صريح، AssemblyAI لا تكتشف اللغة تلقائيًا.
+  if (opts.language === "auto") {
+    body.language_detection = true;
+  } else {
+    body.language_code = opts.language;
+  }
 
   const transcriptRes = await fetch("https://api.assemblyai.com/v2/transcript", {
     method: "POST",
@@ -189,7 +189,6 @@ async function transcribeAssemblyAI(
   if (!transcriptRes.ok) throw await makeError(transcriptRes, "AssemblyAI (transcript)");
   const { id } = await transcriptRes.json();
 
-  // 3) انتظار النتيجة (polling)
   for (let i = 0; i < 120; i++) {
     await new Promise((r) => setTimeout(r, 3000));
     const pollRes = await fetch(`https://api.assemblyai.com/v2/transcript/${id}`, {
@@ -274,8 +273,6 @@ async function makeError(res: Response, provider: string): Promise<Error> {
   if (res.status === 429) msg = `تجاوزت الحد المجاني اليومي (${provider}) — حاول لاحقًا.`;
   try {
     const json = await res.json();
-    // كل منصة بتستخدم شكل مختلف لرسالة الخطأ — نغطي الأشكال الشائعة
-    // (OpenAI/Groq: error.message ، Deepgram: err_msg ، AssemblyAI: error)
     const detail =
       json?.error?.message ?? json?.err_msg ?? json?.error ?? json?.message;
     if (detail) msg = `${msg} — ${String(detail)}`;

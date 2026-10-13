@@ -7,6 +7,8 @@ interface UseAudioRecorderResult {
   elapsedSeconds: number;
   audioBlob: Blob | null;
   error: string | null;
+  /** 0 إلى 1 — مستوى الصوت الحي أثناء التسجيل، لرسم مؤشر Waveform حقيقي يثبت أن المايك شغّال فعليًا. */
+  audioLevel: number;
   start: () => Promise<void>;
   pause: () => void;
   resume: () => void;
@@ -14,7 +16,6 @@ interface UseAudioRecorderResult {
   reset: () => void;
 }
 
-/** أول نوع مدعوم من المتصفح — Chrome/Firefox تدعمان webm عادةً، Safari تدعم mp4 غالبًا. */
 function pickSupportedMimeType(): string | undefined {
   const candidates = [
     "audio/webm;codecs=opus",
@@ -27,7 +28,7 @@ function pickSupportedMimeType(): string | undefined {
       return type;
     }
   }
-  return undefined; // اترك المتصفح يختار الافتراضي
+  return undefined;
 }
 
 export function useAudioRecorder(): UseAudioRecorderResult {
@@ -35,6 +36,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [audioLevel, setAudioLevel] = useState(0);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -44,6 +46,11 @@ export function useAudioRecorder(): UseAudioRecorderResult {
   const pausedDurationRef = useRef(0);
   const pausedAtRef = useRef<number | null>(null);
 
+  // مكوّنات تحليل الصوت الحي — لمؤشر المستوى فقط، لا علاقة لها بالتسجيل نفسه.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const levelFrameRef = useRef<number | null>(null);
+
   const clearTimer = () => {
     if (timerRef.current) {
       clearInterval(timerRef.current);
@@ -51,18 +58,55 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     }
   };
 
+  const stopLevelMeter = () => {
+    if (levelFrameRef.current) {
+      cancelAnimationFrame(levelFrameRef.current);
+      levelFrameRef.current = null;
+    }
+    audioCtxRef.current?.close().catch(() => {});
+    audioCtxRef.current = null;
+    analyserRef.current = null;
+    setAudioLevel(0);
+  };
+
   const stopStream = () => {
     streamRef.current?.getTracks().forEach((t) => t.stop());
     streamRef.current = null;
   };
 
-  // تنظيف عند إزالة المكوّن — لا نريد ميكروفونًا يبقى "شغّالًا" في الخلفية.
   useEffect(() => {
     return () => {
       clearTimer();
+      stopLevelMeter();
       stopStream();
     };
   }, []);
+
+  const startLevelMeter = (stream: MediaStream) => {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    const source = ctx.createMediaStreamSource(stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 512;
+    source.connect(analyser);
+    audioCtxRef.current = ctx;
+    analyserRef.current = analyser;
+
+    const data = new Uint8Array(analyser.frequencyBinCount);
+    const tick = () => {
+      analyser.getByteTimeDomainData(data);
+      // RMS بسيط حول نقطة المنتصف (128) — يعطي إحساسًا بمستوى الصوت الفعلي.
+      let sumSquares = 0;
+      for (let i = 0; i < data.length; i++) {
+        const normalized = (data[i]! - 128) / 128;
+        sumSquares += normalized * normalized;
+      }
+      const rms = Math.sqrt(sumSquares / data.length);
+      setAudioLevel(Math.min(1, rms * 4)); // تضخيم بسيط ليكون المؤشر محسوسًا بصريًا
+      levelFrameRef.current = requestAnimationFrame(tick);
+    };
+    tick();
+  };
 
   const start = useCallback(async () => {
     setError(null);
@@ -71,6 +115,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+      startLevelMeter(stream);
 
       const mimeType = pickSupportedMimeType();
       const recorder = mimeType
@@ -85,6 +130,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
         const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" });
         setAudioBlob(blob);
         clearTimer();
+        stopLevelMeter();
         stopStream();
       };
 
@@ -101,7 +147,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
       }, 250);
 
       setStatus("recording");
-    } catch (err: unknown) {
+    } catch (err) {
       const message =
         err instanceof DOMException && err.name === "NotAllowedError"
           ? "تم رفض إذن الميكروفون — اسمح بالوصول من إعدادات المتصفح وحاول مرة أخرى."
@@ -120,7 +166,6 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     recorder.pause();
     clearTimer();
     setStatus("paused");
-    // نحفظ لحظة الإيقاف لحساب المدة الصافية لاحقًا عند الاستئناف.
     pausedAtRef.current = Date.now();
   }, []);
 
@@ -149,6 +194,7 @@ export function useAudioRecorder(): UseAudioRecorderResult {
 
   const reset = useCallback(() => {
     clearTimer();
+    stopLevelMeter();
     stopStream();
     mediaRecorderRef.current = null;
     chunksRef.current = [];
@@ -158,5 +204,5 @@ export function useAudioRecorder(): UseAudioRecorderResult {
     setStatus("idle");
   }, []);
 
-  return { status, elapsedSeconds, audioBlob, error, start, pause, resume, stop, reset };
+  return { status, elapsedSeconds, audioBlob, error, audioLevel, start, pause, resume, stop, reset };
 }

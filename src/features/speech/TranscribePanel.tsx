@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { transcribeCloud, PROVIDERS } from "@/speech/cloudEngines";
 import { getStoredKey, setStoredKey } from "@/speech/apiKeyStorage";
+import { getLastSettings, setLastSettings } from "@/speech/lastSettings";
 import { segmentWords } from "@/subtitles/segmentation";
 import type { ProviderId } from "@/speech/cloudEngines";
 import type { SubtitleTrack } from "@/models/subtitle";
@@ -18,15 +19,18 @@ const LANGUAGE_OPTIONS = [
 interface TranscribePanelProps {
   audio: ExtractedAudio;
   sourceFile: File;
-  /** يُستدعى بعد التفريغ — يحمل النتيجة للمكوّن الأب عشان يعرضها في العمود الآخر */
   onTranscribed: (track: SubtitleTrack, audioBlob: Blob) => void;
 }
 
+const lastSettings = getLastSettings();
+
 export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) {
-  const [providerId, setProviderId] = useState<ProviderId>("groq");
-  const [apiKey, setApiKey] = useState(() => getStoredKey("groq"));
-  const [model, setModel] = useState(PROVIDERS[0]!.models[0]!.value);
-  const [language, setLanguage] = useState("ar");
+  const [providerId, setProviderId] = useState<ProviderId>(lastSettings?.provider ?? "groq");
+  const [apiKey, setApiKey] = useState(() => getStoredKey(providerId));
+  const [model, setModel] = useState(
+    lastSettings?.model ?? PROVIDERS.find((p) => p.id === providerId)!.models[0]!.value
+  );
+  const [language, setLanguage] = useState(lastSettings?.language ?? "ar");
   const [status, setStatus] = useState<Status>("idle");
   const [error, setError] = useState<string | null>(null);
 
@@ -36,7 +40,19 @@ export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) 
   const handleProviderChange = (id: ProviderId) => {
     setProviderId(id);
     setApiKey(getStoredKey(id));
-    setModel(PROVIDERS.find((p) => p.id === id)!.models[0]!.value);
+    const newModel = PROVIDERS.find((p) => p.id === id)!.models[0]!.value;
+    setModel(newModel);
+    setLastSettings({ provider: id, model: newModel, language });
+  };
+
+  const handleModelChange = (value: string) => {
+    setModel(value);
+    setLastSettings({ provider: providerId, model: value, language });
+  };
+
+  const handleLanguageChange = (value: string) => {
+    setLanguage(value);
+    setLastSettings({ provider: providerId, model, language: value });
   };
 
   const handleKeyChange = (key: string) => {
@@ -62,7 +78,6 @@ export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) 
     <div className="space-y-4 rounded-sf border border-border bg-surface p-4">
       <p className="text-sm font-semibold text-text">التفريغ النصي</p>
 
-      {/* اختيار المنصة */}
       <div className="space-y-2">
         <p className="text-xs text-muted">خدمة التفريغ</p>
         <div className="flex flex-wrap gap-2">
@@ -79,17 +94,16 @@ export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) 
         <p className="text-xs text-muted">{provider.freeNote}</p>
       </div>
 
-      {/* مفتاح API */}
       <div className="space-y-1">
-        <label htmlFor="api-key-input" className="block text-xs text-muted">
+        <label htmlFor="sf-field-key" className="block text-xs text-muted">
           مفتاح {provider.name} —{" "}
           <a href={provider.signupUrl} target="_blank" rel="noopener noreferrer" className="text-accent underline">
             احصل عليه مجانًا
           </a>
         </label>
         <input
-          id="api-key-input"
-          name="subtitleforge-api-key"
+          id="sf-field-key"
+          name="sf-field-k7x"
           type="text"
           value={apiKey}
           disabled={isBusy}
@@ -97,24 +111,22 @@ export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) 
           placeholder={provider.keyPlaceholder}
           autoComplete="off"
           spellCheck={false}
-          // تمنع مديري كلمات مرور المتصفح (Chrome/Firefox) والإضافات
-          // (1Password/LastPass) من اعتراض الحقل — كانت سبب مشاكل ظهرت فعليًا.
           data-lpignore="true"
           data-1p-ignore="true"
           data-bwignore="true"
+          data-form-type="other"
           className="w-full rounded-sf border border-border bg-bg px-3 py-2 text-sm text-text placeholder:text-muted disabled:opacity-50"
         />
-        <p className="text-xs text-muted">يُحفَظ في متصفحك فقط.</p>
+        <p className="text-xs text-muted">يُحفَظ في متصفحك فقط — تلقائيًا مع كل كتابة.</p>
       </div>
 
-      {/* النموذج */}
       {provider.models.length > 1 && (
         <div className="space-y-1">
           <p className="text-xs text-muted">النموذج</p>
           <div className="flex flex-wrap gap-2">
             {provider.models.map((m) => (
               <button key={m.value} type="button" disabled={isBusy}
-                onClick={() => setModel(m.value)}
+                onClick={() => handleModelChange(m.value)}
                 className={`rounded-sf border px-3 py-1.5 text-xs transition-colors disabled:opacity-50 ${
                   model === m.value ? "border-accent bg-accent/10 text-text" : "border-border text-muted hover:text-text"
                 }`}>
@@ -125,11 +137,10 @@ export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) 
         </div>
       )}
 
-      {/* اللغة */}
       <div className="space-y-1">
         <label htmlFor="lang-select" className="block text-xs text-muted">اللغة</label>
         <select id="lang-select" value={language} disabled={isBusy}
-          onChange={(e) => setLanguage(e.target.value)}
+          onChange={(e) => handleLanguageChange(e.target.value)}
           className="w-full rounded-sf border border-border bg-bg px-3 py-2 text-sm text-text disabled:opacity-50">
           {LANGUAGE_OPTIONS.map((opt) => (
             <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -137,7 +148,6 @@ export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) 
         </select>
       </div>
 
-      {/* زر البدء */}
       <button type="button" disabled={isBusy || !apiKey.trim()} onClick={handleTranscribe}
         className="w-full rounded-sf bg-accent px-4 py-2.5 text-sm font-medium text-white transition-opacity hover:opacity-90 disabled:opacity-50">
         {isBusy ? "جارٍ التفريغ…" : status === "done" ? "تفريغ مجددًا" : "ابدأ التفريغ النصي"}
