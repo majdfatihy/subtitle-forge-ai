@@ -6,7 +6,7 @@
 import type { Word } from "@/models/subtitle";
 import type { TranscriptionResult } from "./SpeechEngine";
 
-export type ProviderId = "groq" | "deepgram" | "assemblyai";
+export type ProviderId = "groq" | "deepgram" | "assemblyai" | "gladia";
 
 export interface ProviderInfo {
   id: ProviderId;
@@ -16,6 +16,8 @@ export interface ProviderInfo {
   signupUrl: string;
   keyPlaceholder: string;
   models: ModelOption[];
+  /** الحد الأقصى لحجم الملف المرسَل، بالميجابايت — null يعني بلا حد عملي معروف. */
+  maxFileSizeMB: number | null;
 }
 
 export interface ModelOption {
@@ -34,10 +36,11 @@ export const PROVIDERS: ProviderInfo[] = [
   {
     id: "groq",
     name: "Groq",
-    description: "Whisper Large-v3 — دقة عالية مع العربية",
+    description: "Whisper Large-v3 — سريع جدًا",
     freeNote: "مجاني — ~8 ساعة/يوم، بدون بطاقة ائتمان",
     signupUrl: "https://console.groq.com/keys",
     keyPlaceholder: "gsk_...",
+    maxFileSizeMB: 25, // حد صارم موثَّق من Groq نفسها
     models: [
       { value: "whisper-large-v3-turbo", label: "Turbo (أسرع)" },
       { value: "whisper-large-v3", label: "Large v3 (الأدق)" },
@@ -46,27 +49,37 @@ export const PROVIDERS: ProviderInfo[] = [
   {
     id: "deepgram",
     name: "Deepgram",
-    description: "Nova-3 — أسرع معالجة، $200 كريدت مجاني",
-    freeNote: "مجاني — $200 كريدت (~46,000 دقيقة)، بدون بطاقة ائتمان",
+    description: "Nova-3 — الأدق مع العربية حسب اختبارات مستقلة",
+    freeNote: "مجاني — $200 كريدت (~750 ساعة تقريبًا)، بدون بطاقة ائتمان",
     signupUrl: "https://console.deepgram.com/signup",
     keyPlaceholder: "Token هنا...",
+    maxFileSizeMB: 2000,
     models: [
-      // Nova-2 لا يدعم العربية رسميًا (رسالة Deepgram نفسها توجّه لـ Nova-3
-      // عند اختيار ar) — حُذف من القائمة لتفادي خطأ 400 متكرر.
       { value: "nova-3", label: "Nova-3 (الأدق)" },
     ],
   },
   {
     id: "assemblyai",
     name: "AssemblyAI",
-    description: "Universal-3.5 Pro — $50 كريدت مجاني (~185 ساعة)",
-    freeNote: "مجاني — $50 كريدت (~185 ساعة)، بدون بطاقة ائتمان",
+    description: "Universal-3.5 Pro",
+    freeNote: "مجاني — $50 كريدت (~140-185 ساعة)، بدون بطاقة ائتمان",
     signupUrl: "https://www.assemblyai.com/dashboard/signup",
     keyPlaceholder: "API Key هنا...",
+    maxFileSizeMB: 5000,
     models: [
       { value: "universal-3-5-pro", label: "Universal-3.5 Pro (الأدق)" },
       { value: "universal-2", label: "Universal-2 (الأسرع)" },
     ],
+  },
+  {
+    id: "gladia",
+    name: "Gladia",
+    description: "دعم 99+ لغة — حد شهري متجدد (لا ينفد كالباقي)",
+    freeNote: "مجاني — 10 ساعات/شهر، تتجدد تلقائيًا كل شهر",
+    signupUrl: "https://app.gladia.io/auth/signup",
+    keyPlaceholder: "x-gladia-key...",
+    maxFileSizeMB: 1000,
+    models: [{ value: "default", label: "النموذج القياسي" }],
   },
 ];
 
@@ -113,9 +126,6 @@ async function transcribeDeepgram(
     smart_format: "true",
   });
 
-  // بدون تحديد صريح، Deepgram تفترض الإنجليزية افتراضيًا (موثَّق رسميًا) —
-  // "اكتشاف تلقائي" لازم تفعيل detect_language صراحة، وإلا تُفرَّغ صوت
-  // عربي بافتراض إنجليزي فيخرج نص شبه فارغ رغم ظهور "اكتمل" بنجاح.
   if (opts.language === "auto") {
     params.set("detect_language", "true");
   } else {
@@ -174,7 +184,6 @@ async function transcribeAssemblyAI(
     speech_models: [opts.model],
     format_text: true,
   };
-  // نفس منطق Deepgram — بدون تفعيل صريح، AssemblyAI لا تكتشف اللغة تلقائيًا.
   if (opts.language === "auto") {
     body.language_detection = true;
   } else {
@@ -222,6 +231,90 @@ async function transcribeAssemblyAI(
 }
 
 // ============================================================
+// Gladia  (upload → transcription → poll) — إضافة جديدة
+// ملاحظة صادقة: التحليل مبني على توثيق Gladia الرسمي (v2) لكن لم
+// يُختبَر فعليًا بعد على جهاز المستخدم — لو ظهر خطأ تحليل غير متوقَّع
+// (مثلًا شكل استجابة مختلف)، أبلغني بالرد الخام من Console لأصحّحه بدقة.
+// ============================================================
+
+async function transcribeGladia(
+  blob: Blob,
+  opts: CloudTranscribeOptions
+): Promise<TranscriptionResult> {
+  const uploadForm = new FormData();
+  uploadForm.append("audio", blob, "audio.wav");
+
+  const uploadRes = await fetch("https://api.gladia.io/v2/upload", {
+    method: "POST",
+    headers: { "x-gladia-key": opts.apiKey },
+    body: uploadForm,
+  });
+  if (!uploadRes.ok) throw await makeError(uploadRes, "Gladia (upload)");
+  const { audio_url } = await uploadRes.json();
+
+  const body: Record<string, unknown> = { audio_url, subtitles: false };
+  if (opts.language !== "auto") {
+    body.language_config = { languages: [opts.language], code_switching: false };
+  }
+
+  const initRes = await fetch("https://api.gladia.io/v2/transcription", {
+    method: "POST",
+    headers: { "x-gladia-key": opts.apiKey, "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!initRes.ok) throw await makeError(initRes, "Gladia (transcription)");
+  const { id } = await initRes.json();
+
+  for (let i = 0; i < 120; i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+    const pollRes = await fetch(`https://api.gladia.io/v2/transcription/${id}`, {
+      headers: { "x-gladia-key": opts.apiKey },
+    });
+    if (!pollRes.ok) throw await makeError(pollRes, "Gladia (poll)");
+    const result = await pollRes.json();
+
+    if (result.status === "done") {
+      const utterances =
+        result?.result?.transcription?.utterances ??
+        result?.result?.transcription?.full_transcript_sentences ??
+        [];
+      const rawWords: Array<{ word?: string; text?: string; start: number; end: number }> = [];
+      for (const u of utterances) {
+        if (Array.isArray(u.words)) rawWords.push(...u.words);
+      }
+      return {
+        language: result?.result?.transcription?.languages?.[0] ?? opts.language,
+        words: parseWordTimestamps(rawWords),
+      };
+    }
+    if (result.status === "error") {
+      throw new Error(`فشل التفريغ على Gladia: ${result?.error_code ?? "خطأ غير معروف"}`);
+    }
+  }
+  throw new Error("تجاوز وقت الانتظار على Gladia — حاول مرة أخرى.");
+}
+
+// ============================================================
+// التحقق من حجم الملف قبل الإرسال
+// ============================================================
+
+export function checkFileSizeLimit(
+  provider: ProviderId,
+  sizeBytes: number
+): { ok: true } | { ok: false; message: string } {
+  const info = PROVIDERS.find((p) => p.id === provider)!;
+  if (info.maxFileSizeMB === null) return { ok: true };
+  const sizeMB = sizeBytes / (1024 * 1024);
+  if (sizeMB > info.maxFileSizeMB) {
+    return {
+      ok: false,
+      message: `الملف الصوتي (${sizeMB.toFixed(1)} ميجا) أكبر من حد ${info.name} المسموح (${info.maxFileSizeMB} ميجا). جرّب منصة تانية أو قلّل مدة الملف.`,
+    };
+  }
+  return { ok: true };
+}
+
+// ============================================================
 // الدالة الرئيسية — موزّع
 // ============================================================
 
@@ -232,11 +325,15 @@ export async function transcribeCloud(
   if (!opts.apiKey.trim()) {
     throw new Error("أدخل مفتاح API أولًا.");
   }
+  const sizeCheck = checkFileSizeLimit(opts.provider, blob.size);
+  if (!sizeCheck.ok) throw new Error(sizeCheck.message);
+
   try {
     switch (opts.provider) {
       case "groq":       return await transcribeGroq(blob, opts);
       case "deepgram":   return await transcribeDeepgram(blob, opts);
       case "assemblyai": return await transcribeAssemblyAI(blob, opts);
+      case "gladia":     return await transcribeGladia(blob, opts);
       default: throw new Error(`مزوّد غير مدعوم: ${opts.provider}`);
     }
   } catch (err) {

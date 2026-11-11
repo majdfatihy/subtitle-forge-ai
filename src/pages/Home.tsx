@@ -7,10 +7,12 @@ import { RecordPanel } from "@/features/record/RecordPanel";
 import { Notice } from "@/components/Notice";
 import { ProjectsPanel } from "@/features/projects/ProjectsPanel";
 import { saveProject } from "@/storage/projectsDB";
+import { useLocale } from "@/i18n/LocaleContext";
 import type { StoredProject } from "@/storage/projectsDB";
 import type { SubtitleTrack } from "@/models/subtitle";
 
 export function Home() {
+  const { t } = useLocale();
   const [accepted, setAccepted] = useState<AcceptedFile | null>(null);
   const [quickError, setQuickError] = useState<{ title: string; message: string } | null>(null);
   const [track, setTrack] = useState<SubtitleTrack | null>(null);
@@ -19,6 +21,10 @@ export function Home() {
   const [resultNonce, setResultNonce] = useState(0);
   const [showProjects, setShowProjects] = useState(false);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // المشروع الحالي قيد التحرير — لو موجود، أي حفظ (تلقائي أو يدوي)
+  // يُحدِّث نفس السجل بدل ما يُنشئ نسخة جديدة مكررة في كل مرة.
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
+  const [currentProviderInfo, setCurrentProviderInfo] = useState<{ provider: string; model: string } | null>(null);
 
   const handleFileChange = (f: AcceptedFile) => {
     setQuickError(null);
@@ -26,6 +32,8 @@ export function Home() {
     setTrack(null);
     setAudioBlob(null);
     setSaveStatus("idle");
+    setCurrentProjectId(null); // ملف جديد = مشروع جديد، لا نُحدِّث القديم
+    setCurrentProviderInfo(null);
   };
 
   const handleOpenProject = (project: StoredProject) => {
@@ -38,57 +46,77 @@ export function Home() {
     setResultNonce((n) => n + 1);
     setShowProjects(false);
     setSaveStatus("idle");
+    setCurrentProjectId(project.id); // أي حفظ تالٍ يُحدِّث هذا المشروع نفسه
+    setCurrentProviderInfo(
+      project.providerUsed && project.modelUsed
+        ? { provider: project.providerUsed, model: project.modelUsed }
+        : null
+    );
+  };
+
+  const persistProject = async (
+    trackToSave: SubtitleTrack,
+    blob: Blob,
+    providerUsed?: string,
+    modelUsed?: string
+  ) => {
+    if (!accepted) return;
+    const newId = await saveProject({
+      id: currentProjectId ?? undefined,
+      name: accepted.file.name.replace(/\.[^./]+$/, ""),
+      sourceFileName: accepted.file.name,
+      sourceFileType: accepted.file.type,
+      sourceKind: accepted.kind,
+      sourceFileBlob: accepted.file,
+      audioBlob: blob,
+      track: trackToSave,
+      providerUsed,
+      modelUsed,
+    });
+    setCurrentProjectId(newId);
+    setSaveStatus("saved");
   };
 
   const handleSaveProject = async () => {
     if (!accepted || !audioBlob || !track) return;
     setSaveStatus("saving");
     try {
-      await saveProject({
-        name: accepted.file.name.replace(/\.[^./]+$/, ""),
-        sourceFileName: accepted.file.name,
-        sourceFileType: accepted.file.type,
-        sourceKind: accepted.kind,
-        sourceFileBlob: accepted.file,
-        audioBlob,
-        track,
-      });
-      setSaveStatus("saved");
+      await persistProject(track, audioBlob, currentProviderInfo?.provider, currentProviderInfo?.model);
     } catch {
       setSaveStatus("error");
     }
   };
 
   const SaveButton = () => (
-    <div className="flex items-center justify-end gap-2">
+    <div className="flex items-center justify-between gap-2">
+      {currentProviderInfo && (
+        <p className="text-xs text-muted">
+          تم التفريغ بواسطة {currentProviderInfo.provider} ({currentProviderInfo.model})
+        </p>
+      )}
       <button
         type="button"
         onClick={handleSaveProject}
         disabled={saveStatus === "saving"}
-        className="rounded-sf border border-border px-3 py-1.5 text-xs text-muted hover:text-text disabled:opacity-50"
+        className="ms-auto rounded-sf border border-border px-3 py-1.5 text-xs text-muted hover:text-text disabled:opacity-50"
       >
-        {saveStatus === "saving" ? "جارٍ الحفظ…" : saveStatus === "saved" ? "✅ تم الحفظ" : "💾 حفظ المشروع"}
+        {saveStatus === "saving" ? t("saving") : saveStatus === "saved" ? t("saved") : t("saveProject")}
       </button>
     </div>
   );
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-6">
-      {/* العنوان الكامل يظهر فقط قبل اختيار أي ملف — بعدها يتقلّص لشريط صغير */}
+    <div className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6">
       {!accepted ? (
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            حوّل الفيديو والصوت إلى نص وملفات ترجمة
-          </h1>
-          <p className="max-w-md text-sm text-muted">
-            اختر ملفًا، استخرج الصوت، فرّغ النص عبر Groq أو Deepgram أو AssemblyAI مجانًا.
-          </p>
+          <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">{t("appTitle")}</h1>
+          <p className="max-w-md text-sm text-muted">{t("appSubtitle")}</p>
           <button
             type="button"
             onClick={() => setShowProjects(true)}
             className="text-xs text-muted underline hover:text-text"
           >
-            📂 المشاريع المحفوظة
+            {t("savedProjects")}
           </button>
         </div>
       ) : (
@@ -99,7 +127,7 @@ export function Home() {
             onClick={() => setShowProjects(true)}
             className="text-xs text-muted underline hover:text-text"
           >
-            📂 المشاريع
+            {t("projects")}
           </button>
         </div>
       )}
@@ -108,8 +136,7 @@ export function Home() {
         <ProjectsPanel onOpenProject={handleOpenProject} onClose={() => setShowProjects(false)} />
       )}
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-        {/* العمود الأيمن — الرفع/التسجيل والاستخراج والتفريغ */}
+      <div className="flex-1 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <div className="space-y-4">
           {quickError && (
             <Notice
@@ -132,7 +159,7 @@ export function Home() {
                       : "border-border text-muted hover:text-text"
                   }`}
                 >
-                  📁 رفع ملف
+                  {t("uploadFile")}
                 </button>
                 <button
                   type="button"
@@ -143,7 +170,7 @@ export function Home() {
                       : "border-border text-muted hover:text-text"
                   }`}
                 >
-                  🎙 تسجيل صوت
+                  {t("recordAudio")}
                 </button>
               </div>
 
@@ -164,18 +191,26 @@ export function Home() {
                 <FileSummary accepted={accepted} />
                 <button
                   type="button"
-                  onClick={() => { setAccepted(null); setTrack(null); setAudioBlob(null); }}
+                  onClick={() => { setAccepted(null); setTrack(null); setAudioBlob(null); setCurrentProjectId(null); }}
                   className="text-xs text-muted underline hover:text-text"
                 >
-                  تغيير الملف
+                  {t("changeFile")}
                 </button>
               </div>
-              <ExtractAudioPanel accepted={accepted} onTranscribed={(t, b) => { setTrack(t); setAudioBlob(b); setResultNonce((n) => n + 1); }} />
+              <ExtractAudioPanel
+                accepted={accepted}
+                onTranscribed={(trackResult, blob, providerUsed, modelUsed) => {
+                  setTrack(trackResult);
+                  setAudioBlob(blob);
+                  setResultNonce((n) => n + 1);
+                  setCurrentProviderInfo({ provider: providerUsed, model: modelUsed });
+                  void persistProject(trackResult, blob, providerUsed, modelUsed).catch(() => {});
+                }}
+              />
             </div>
           )}
         </div>
 
-        {/* العمود الأيسر — المحرر على الكمبيوتر */}
         <div className="hidden lg:block">
           {track && audioBlob && accepted ? (
             <div className="space-y-3">
@@ -191,14 +226,13 @@ export function Home() {
           ) : (
             <div className="flex min-h-[400px] items-center justify-center rounded-sf border border-dashed border-border">
               <div className="text-center">
-                <p className="text-sm text-muted">محرر الترجمة</p>
-                <p className="mt-1 text-xs text-muted">سيظهر هنا بعد التفريغ</p>
+                <p className="text-sm text-muted">{t("editorPlaceholderTitle")}</p>
+                <p className="mt-1 text-xs text-muted">{t("editorPlaceholderBody")}</p>
               </div>
             </div>
           )}
         </div>
 
-        {/* المحرر على الموبايل */}
         {track && audioBlob && accepted && (
           <div className="space-y-3 lg:hidden">
             <SaveButton />
@@ -212,6 +246,17 @@ export function Home() {
           </div>
         )}
       </div>
+
+      <footer className="mt-10 border-t border-border pt-4 text-center text-xs text-muted">
+        <nav className="flex flex-wrap justify-center gap-x-4 gap-y-2">
+          <a href="/about" className="hover:text-text hover:underline">{t("footerAbout")}</a>
+          <a href="/how-to-use" className="hover:text-text hover:underline">{t("footerHowTo")}</a>
+          <a href="/contact" className="hover:text-text hover:underline">{t("footerContact")}</a>
+          <a href="/privacy" className="hover:text-text hover:underline">{t("footerPrivacy")}</a>
+          <a href="/terms" className="hover:text-text hover:underline">{t("footerTerms")}</a>
+        </nav>
+        <p className="mt-3">SubtitleForge © {new Date().getFullYear()}</p>
+      </footer>
     </div>
   );
 }

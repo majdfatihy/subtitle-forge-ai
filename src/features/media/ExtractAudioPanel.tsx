@@ -20,7 +20,7 @@ function formatDuration(seconds: number): string {
 
 interface ExtractAudioPanelProps {
   accepted: AcceptedFile;
-  onTranscribed: (track: SubtitleTrack, audioBlob: Blob) => void;
+  onTranscribed: (track: SubtitleTrack, audioBlob: Blob, providerUsed: string, modelUsed: string) => void;
 }
 
 export function ExtractAudioPanel({ accepted, onTranscribed }: ExtractAudioPanelProps) {

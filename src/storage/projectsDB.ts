@@ -16,9 +16,12 @@ export interface StoredProject {
   sourceFileBlob: Blob;
   audioBlob: Blob;
   track: SubtitleTrack;
+  /** اسم خدمة التفريغ المستخدَمة (مثلًا "Groq") — لعرضها في قائمة المشاريع. */
+  providerUsed?: string;
+  /** اسم النموذج المستخدَم (مثلًا "whisper-large-v3-turbo"). */
+  modelUsed?: string;
 }
 
-/** نسخة مختصرة بدون الـ Blobs الثقيلة — لعرض القائمة بسرعة بلا تحميل كل البيانات. */
 export interface ProjectSummary {
   id: string;
   name: string;
@@ -26,6 +29,8 @@ export interface ProjectSummary {
   sourceFileName: string;
   cueCount: number;
   sizeEstimate: number;
+  providerUsed?: string;
+  modelUsed?: string;
 }
 
 function openDB(): Promise<IDBDatabase> {
@@ -48,6 +53,11 @@ function genId(): string {
     : `${Date.now()}_${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * لو مرّرت id لمشروع موجود بالفعل، يُحدَّث نفس السجل (لا يتكرر) ويحافظ
+ * على createdAt الأصلي. بدون id، يُنشأ مشروع جديد. يرجع الـ id النهائي
+ * دائمًا — استخدمه كـ"مشروع حالي" لأي عملية حفظ تالية حتى لا تتكرر.
+ */
 export async function saveProject(
   data: Omit<StoredProject, "id" | "createdAt" | "updatedAt"> & { id?: string }
 ): Promise<string> {
@@ -59,7 +69,6 @@ export async function saveProject(
     const tx = db.transaction(STORE, "readwrite");
     const store = tx.objectStore(STORE);
 
-    // لو بنحدّث مشروع موجود، نحافظ على createdAt الأصلي.
     const getReq = store.get(id);
     getReq.onsuccess = () => {
       const existing = getReq.result as StoredProject | undefined;
@@ -93,6 +102,8 @@ export async function listProjects(): Promise<ProjectSummary[]> {
           sourceFileName: p.sourceFileName,
           cueCount: p.track?.cues?.length ?? 0,
           sizeEstimate: (p.sourceFileBlob?.size ?? 0) + (p.audioBlob?.size ?? 0),
+          providerUsed: p.providerUsed,
+          modelUsed: p.modelUsed,
         }))
         .sort((a, b) => b.updatedAt - a.updatedAt);
       resolve(summaries);

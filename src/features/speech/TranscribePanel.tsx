@@ -19,7 +19,7 @@ const LANGUAGE_OPTIONS = [
 interface TranscribePanelProps {
   audio: ExtractedAudio;
   sourceFile: File;
-  onTranscribed: (track: SubtitleTrack, audioBlob: Blob) => void;
+  onTranscribed: (track: SubtitleTrack, audioBlob: Blob, providerUsed: string, modelUsed: string) => void;
 }
 
 const lastSettings = getLastSettings();
@@ -67,7 +67,7 @@ export function TranscribePanel({ audio, onTranscribed }: TranscribePanelProps) 
       const result = await transcribeCloud(audio.blob, { provider: providerId, apiKey, model, language });
       const track: SubtitleTrack = { language: result.language, cues: segmentWords(result.words) };
       setStatus("done");
-      onTranscribed(track, audio.blob);
+      onTranscribed(track, audio.blob, provider.name, model);
     } catch (err) {
       setError(err instanceof Error ? err.message : "تعذّر التفريغ.");
       setStatus("error");

@@ -26,9 +26,7 @@ export function ThemeToggle() {
             onClick={() => setTheme(opt.value)}
             className={[
               "rounded-[8px] px-3 py-1.5 text-sm transition-colors",
-              active
-                ? "bg-accent text-bg"
-                : "text-muted hover:text-text",
+              active ? "bg-accent text-bg" : "text-muted hover:text-text",
             ].join(" ")}
           >
             {opt.label}

@@ -81,11 +81,16 @@ export function RecordPanel({ onFileAccepted }: RecordPanelProps) {
             <span className="font-mono text-lg text-text">{formatElapsed(elapsedSeconds)}</span>
             {isPaused && <span className="text-xs text-muted">(متوقّف مؤقتًا)</span>}
           </div>
-          {isRecording && audioLevel < 0.03 && (
-            <p className="text-center text-xs text-amber-500">
-              ⚠️ لا يبدو أن المايك يلتقط صوتًا — تأكّد من عدم كتم الصوت (Mute) وأنه الميكروفون الصحيح مُختار في المتصفح.
-            </p>
-          )}
+          {/* مساحة ثابتة محجوزة دائمًا — ظهور/اختفاء الرسالة فجأة كان
+              يسبب قفزة في شكل الصفحة (الوصف "عدم ثبات"). الآن المكان
+              موجود دومًا، فقط محتواه يتغيّر. */}
+          <div className="min-h-[2rem]">
+            {isRecording && audioLevel < 0.03 && (
+              <p className="text-center text-xs text-amber-500">
+                ⚠️ لا يبدو أن المايك يلتقط صوتًا — تأكّد من عدم كتم الصوت (Mute) وأنه الميكروفون الصحيح مُختار في المتصفح.
+              </p>
+            )}
+          </div>
           <div className="flex gap-2">
             {isRecording ? (
               <button
