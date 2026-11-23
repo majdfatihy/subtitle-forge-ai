@@ -89,6 +89,16 @@ export default function App() {
     <LocaleProvider>
       <Header />
       <Router />
+      <footer className="border-t border-border bg-surface px-4 py-5 text-sm text-muted">
+        <nav aria-label="روابط الموقع الرسمي والسياسات / Site policies" className="mx-auto flex max-w-6xl flex-wrap items-center justify-center gap-x-5 gap-y-2">
+          <a className="hover:underline" href="https://dev.majdfatihy.com/">الرئيسية / Home</a>
+          <a className="hover:underline" href="https://dev.majdfatihy.com/about.html">من نحن / About</a>
+          <a className="hover:underline" href="https://dev.majdfatihy.com/privacy.html">الخصوصية / Privacy</a>
+          <a className="hover:underline" href="https://dev.majdfatihy.com/terms.html">الشروط / Terms</a>
+          <a className="hover:underline" href="https://dev.majdfatihy.com/disclaimer.html">إخلاء المسؤولية / Disclaimer</a>
+          <a className="hover:underline" href="https://dev.majdfatihy.com/contact.html">اتصل بنا / Contact</a>
+        </nav>
+      </footer>
     </LocaleProvider>
   );
 }
